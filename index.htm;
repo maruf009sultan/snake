@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Snake Armory — Extended (Surprise)</title>
+<style>
+  :root{
+    --bg:#07122a;--panel:rgba(255,255,255,.06);--fg:#e9eef8;--accent:#5de;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#04101f,#07122a);color:var(--fg);font-family:Inter,system-ui,Roboto,Arial}
+  .wrap{max-width:1040px;margin:28px auto;padding:14px}
+  .stage{display:flex;gap:18px;align-items:flex-start;justify-content:center}
+  canvas{background:#041026;border-radius:12px;width:560px;height:560px;image-rendering:pixelated;display:block;outline: none}
+  .panel{width:360px;padding:12px;border-radius:12px;background:var(--panel);backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.06)}
+  .row{display:flex;align-items:center;justify-content:space-between;margin:8px 0}
+  label{font-size:13px;color:#bcd3ea}
+  select,input[type=range]{width:100%}
+  button{background:linear-gradient(145deg,#fbfbff,#dfe6ef);color:#07122a;border:0;padding:10px;border-radius:10px;font-weight:700;cursor:pointer}
+  .muted{opacity:.8;font-size:13px;color:#9fb5d6}
+  .hud{position:relative;margin-bottom:8px;padding:8px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.03)}
+  .bad{display:inline-block;padding:4px 8px;border-radius:999px;background:rgba(0,0,0,.18);font-size:12px}
+  #startBtn{width:100%;margin-top:8px}
+  .small{font-size:12px;color:#cfe5ff}
+  .mode-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  canvas:focus{box-shadow:0 0 0 3px rgba(93,222,255,.12),inset 0 0 0 2px rgba(255,255,255,.03)}
+  .footer{margin-top:12px;font-size:12px;color:#9bb7e0;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap" aria-live="polite">
+  <h2 style="margin:6px 0 12px">Snake Armory — Extended</h2>
+  <div class="stage" role="application" aria-label="Snake game stage">
+    <canvas id="c" width="560" height="560" tabindex="0" aria-label="Game canvas"></canvas>
+
+    <aside class="panel" aria-label="Controls and HUD">
+      <div class="hud" role="region" aria-label="Game HUD">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><strong>Score</strong> <div id="score" style="font-family:monospace">0</div></div>
+          <div style="text-align:right"><span class="small">Best</span><div id="best" style="font-family:monospace">0</div></div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <div style="flex:1">
+            <div class="muted small">Health</div>
+            <div style="background:#071122;border-radius:8px;height:10px;overflow:hidden;margin-top:6px">
+              <div id="hp" style="height:100%;width:100%;background:linear-gradient(90deg,#46ffb5,#ffd76b);transition:width .12s linear"></div>
+            </div>
+          </div>
+          <div style="min-width:90px;text-align:center">
+            <div class="muted small">Weapon</div>
+            <div id="weaponLabel" class="bad" style="margin-top:6px;font-weight:700">Deagle</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        <label for="mode" class="muted">Game mode</label>
+        <select id="mode" aria-label="Select game mode">
+          <option>Classic</option>
+          <option>Classic (Surprise)</option>
+          <option>Survival</option>
+          <option>Time Attack</option>
+          <option>Obstacle Run</option>
+        </select>
+      </div>
+
+      <div style="margin-top:8px">
+        <label class="muted">Difficulty</label>
+        <div class="mode-grid" style="margin-top:6px">
+          <button data-diff="easy">Easy</button>
+          <button data-diff="normal">Normal</button>
+          <button data-diff="hard">Hard</button>
+          <button data-diff="insane">Insane</button>
+        </div>
+      </div>
+
+      <div style="margin-top:8px">
+        <label class="muted">Volume</label>
+        <input id="vol" type="range" min="0" max="1" step="0.01" value="0.6" aria-label="Volume control">
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="startBtn">Start</button>
+          <button id="pauseBtn">Pause</button>
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        <label class="muted">Options</label>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="musicBtn">Music Off</button>
+          <button id="reverseBtn">Reverse: On</button>
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        <div class="muted small">Controls</div>
+        <div class="small" style="margin-top:6px">Arrow keys / WASD to move. R to toggle 180° reverse. Space to fire (when weapon upgrades allow).</div>
+      </div>
+
+      <div class="footer" id="announcer" aria-live="polite"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* -------------- CONFIG -------------- */
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+const GRID = 20, COLS = canvas.width / GRID, ROWS = canvas.height / GRID;
+const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), hpEl = document.getElementById('hp'), weaponLabel = document.getElementById('weaponLabel');
+const startBtn = document.getElementById('startBtn'), pauseBtn = document.getElementById('pauseBtn');
+const modeSel = document.getElementById('mode'), vol = document.getElementById('vol'), musicBtn = document.getElementById('musicBtn'), reverseBtn = document.getElementById('reverseBtn');
+const announcer = document.getElementById('announcer');
+
+const WEAPONS = [
+  {name:'Deagle',damage:4,bullets:1,spread:0,speed:2,color:'#ffd760',bullet:'#ffd760'},
+  {name:'SMG',damage:3,bullets:4,spread:20,speed:1,color:'#4dd0e1',bullet:'#80deea'},
+  {name:'Rifle',damage:6,bullets:2,spread:8,speed:2,color:'#ff8a65',bullet:'#ffab91'},
+  {name:'Shotgun',damage:8,bullets:6,spread:70,speed:1,color:'#8bc34a',bullet:'#c8ef90'},
+  {name:'Laser',damage:12,bullets:1,spread:0,speed:3,color:'#4fc3f7',bullet:'#7bd4ff'}
+];
+
+let best = Number(localStorage.getItem('snakeBest')||0), difficulty='normal';
+bestEl.textContent = best;
+
+/* -------------- AUDIO (Web Audio API) -------------- */
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null, masterGain = null, musicOsc = null, musicOn = false;
+function ensureAudio(){
+  if (!audioCtx){ audioCtx = new AudioCtx(); masterGain = audioCtx.createGain(); masterGain.connect(audioCtx.destination); masterGain.gain.value = vol.value; }
+}
+vol.addEventListener('input',()=>{ if(masterGain) masterGain.gain.value = vol.value; });
+
+function playBeep(freq=880, len=0.08, type='sine', gain=0.12){
+  ensureAudio();
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.value = 0; o.connect(g); g.connect(masterGain);
+  o.start(); g.gain.linearRampToValueAtTime(gain,audioCtx.currentTime+0.01);
+  g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+len);
+  setTimeout(()=>{ o.stop(); }, (len+0.02)*1000 );
+}
+
+/* background music (slow swirling) */
+function toggleMusic(){
+  ensureAudio();
+  if(!musicOn){
+    musicOsc = audioCtx.createOscillator();
+    const g = audioCtx.createGain(); musicOsc.connect(g); g.connect(masterGain);
+    musicOsc.type = 'sine'; musicOsc.frequency.value = 120; g.gain.value = .02;
+    musicOsc.start();
+    musicOn = true; musicBtn.textContent = 'Music On';
+  } else {
+    if(musicOsc){ musicOsc.stop(); musicOsc.disconnect(); musicOsc = null; }
+    musicOn = false; musicBtn.textContent = 'Music Off';
+  }
+}
+musicBtn.addEventListener('click',()=>{ ensureAudio(); toggleMusic(); });
+
+/* -------------- GAME STATE -------------- */
+let state = {};
+function makeState(){
+  return {
+    snake:[{x:6,y:6}], dir:{x:1,y:0}, nextDir:{x:1,y:0}, bullets:[], pellets:[], obstacles:[],
+    food:{x:15,y:10,weapon:0,upg:0}, score:0, health:100, running:false, tickAcc:0, lastTime:0,
+    allowReverse:true, inv:false, invEnd:0, eatStreak:0, speedBoost:0, scoreMul:1, scoreMulTicks:0, timeLeft:600*1, timeAttack:false,
+    surprise:false, foodMoveTick:0
+  };
+}
+state = makeState();
+
+/* MODE / DIFFICULTY adjustments */
+function setupMode(){
+  const m = modeSel.value;
+  state.obstacles = [];
+  state.surprise = false;
+  if (m === 'Classic'){ state.obstacles = []; state.timeAttack=false; }
+  if (m === 'Classic (Surprise)'){ state.obstacles = []; state.timeAttack=false; state.surprise = true; }
+  if (m === 'Survival'){ state.obstacles = []; state.timeAttack=false; }
+  if (m === 'Time Attack'){ state.timeAttack=true; state.timeLeft = 60*6; }
+  if (m === 'Obstacle Run'){
+    state.obstacles = [];
+    for(let i=0;i<40;i++){
+      let ox = Math.floor(Math.random()*COLS), oy=Math.floor(Math.random()*ROWS);
+      if(!isSnake(ox,oy) && !(ox===state.food.x && oy===state.food.y)) state.obstacles.push({x:ox,y:oy});
+    }
+  }
+}
+
+/* DIFFICULTY buttons */
+document.querySelectorAll('[data-diff]').forEach(b=>{
+  b.addEventListener('click',()=>{ difficulty=b.dataset.diff; announcer.textContent = 'Difficulty: '+difficulty; playBeep(900,0.04); });
+});
+
+/* -------------- HELPERS -------------- */
+function clamp(n,a,b){return Math.max(a,Math.min(b,n))}
+function isSnake(x,y){ return state.snake.some(p=>p.x===x && p.y===y); }
+function randEmpty(){
+  let tries=0; while(tries<200){
+    const x=Math.floor(Math.random()*COLS), y=Math.floor(Math.random()*ROWS);
+    if(!isSnake(x,y) && !state.obstacles.some(o=>o.x===x&&o.y===y) && !(x===state.food.x&&y===state.food.y) && !state.pellets.some(p=>p.x===x&&p.y===y)) return {x,y};
+    tries++;
+  }
+  return {x:Math.floor(Math.random()*COLS), y:Math.floor(Math.random()*ROWS)};
+}
+function saveBest(){ if(state.score>best){ best=state.score; localStorage.setItem('snakeBest',best); bestEl.textContent=best; } }
+
+/* -------------- SPAWN / POWERUPS -------------- */
+function generateFood(forceBase=false){
+  const p = randEmpty(); state.food.x = p.x; state.food.y = p.y;
+  state.food.weapon = forceBase ? 0 : Math.floor(Math.random()*WEAPONS.length);
+  state.food.upg = 0;
+}
+function maybeSpawnPellet(){
+  if(Math.random() < (difficulty==='insane'?0.07:difficulty==='hard'?0.05:0.03)){
+    const p = randEmpty();
+    const types = state.surprise ? ['inv','mult2','speed','slow','gunup','heal','surprise'] : ['inv','mult2','speed','slow','gunup','heal'];
+    const type = types[Math.floor(Math.random()*types.length)];
+    state.pellets.push({x:p.x,y:p.y,type,life:600});
+  }
+}
+
+/* -------------- BULLETS & ATTACK -------------- */
+function spawnBulletsFromFood(){
+  // Bullets now originate from the food and head toward the snake using floating velocities
+  const weapon = WEAPONS[state.food.weapon];
+  const head = state.snake[0];
+  const dx = head.x + 0.5 - (state.food.x + 0.5), dy = head.y + 0.5 - (state.food.y + 0.5);
+  const baseAng = Math.atan2(dy,dx);
+  for(let i=0;i<weapon.bullets;i++){
+    const off = weapon.spread ? ((i-(weapon.bullets-1)/2)*(weapon.spread*Math.PI/180)) : 0;
+    const a = baseAng + off;
+    const vx = Math.cos(a) * weapon.speed * 0.6; // scaled so grid steps per tick feel balanced
+    const vy = Math.sin(a) * weapon.speed * 0.6;
+    state.bullets.push({x:state.food.x+0.5,y:state.food.y+0.5,vx,vy,damage:weapon.damage,color:weapon.bullet,life:300});
+  }
+}
+
+/* -------------- DRAWING -------------- */
+function clear(){ ctx.fillStyle='#041026'; ctx.fillRect(0,0,canvas.width,canvas.height); }
+function drawGrid(){
+  ctx.strokeStyle='rgba(255,255,255,.02)'; ctx.lineWidth=1;
+  for(let x=0;x<COLS;x++){ ctx.beginPath(); ctx.moveTo(x*GRID,0); ctx.lineTo(x*GRID,canvas.height); ctx.stroke(); }
+  for(let y=0;y<ROWS;y++){ ctx.beginPath(); ctx.moveTo(0,y*GRID); ctx.lineTo(canvas.width,y*GRID); ctx.stroke(); }
+}
+function drawSnake(){
+  for(let i=0;i<state.snake.length;i++){
+    const s=state.snake[i], px=s.x*GRID, py=s.y*GRID;
+    ctx.fillStyle = i===0 ? '#8bf07a' : '#46cc6b';
+    roundRect(px+1,py+1,GRID-2,GRID-2,4); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.25)'; ctx.stroke();
+  }
+}
+function drawFood(){
+  const f=state.food, w=WEAPONS[f.weapon];
+  const cx=f.x*GRID+GRID/2, cy=f.y*GRID+GRID/2, r=GRID/2-4;
+  ctx.beginPath(); ctx.fillStyle=w.color; ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=0.2; ctx.beginPath(); ctx.fillStyle=w.bullet; ctx.arc(cx,cy,r+6,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+}
+function drawPellets(){
+  for(const p of state.pellets){
+    const cx=p.x*GRID+GRID/2, cy=p.y*GRID+GRID/2;
+    ctx.beginPath(); ctx.fillStyle = p.type==='inv'?'#9adfff':p.type==='mult2'?'#ffd56b':p.type==='speed'?'#8bf07a':p.type==='slow'?'#b5a6ff':p.type==='surprise'?'#ff9fb4':'#ff9fb4';
+    ctx.arc(cx,cy,GRID/3,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.18)'; ctx.stroke();
+  }
+}
+function drawBullets(){
+  for(const b of state.bullets){
+    ctx.fillStyle = b.color; ctx.fillRect(b.x*GRID-1,b.y*GRID-1,2,2);
+  }
+}
+function drawObstacles(){
+  for(const o of state.obstacles){
+    ctx.fillStyle='#2b3a4d'; roundRect(o.x*GRID+2,o.y*GRID+2,GRID-4,GRID-4,6); ctx.fill();
+  }
+}
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+/* -------------- GAME LOOP -------------- */
+const BASE_TICK = 110; // ms per tick base
+let acc = 0;
+function loop(ts){
+  if(!state.running) return;
+  if(!state.lastTime) state.lastTime=ts;
+  const dt = ts - state.lastTime; state.lastTime = ts;
+  acc += dt;
+  const speedAdj = state.speedBoost>0 ? -20 : 0;
+  const diffAdj = difficulty==='easy'?30:difficulty==='normal'?0:difficulty==='hard'?-10:-22;
+  const dynamicTick = Math.max(40, BASE_TICK + diffAdj + speedAdj - Math.floor(state.score/40)*4);
+  while(acc >= dynamicTick){
+    acc -= dynamicTick;
+    tick();
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+let attackCounter = 0;
+function tick(){
+  // apply nextDir but prevent immediate reverse if disallowed
+  let nd = state.nextDir;
+  if(!state.allowReverse && nd.x === -state.dir.x && nd.y === -state.dir.y) nd = state.dir;
+  state.dir = nd;
+  // move head
+  const nx = state.snake[0].x + state.dir.x, ny = state.snake[0].y + state.dir.y;
+  // boundary
+  if(nx<0||nx>=COLS||ny<0||ny>=ROWS || isSnake(nx,ny) || state.obstacles.some(o=>o.x===nx&&o.y===ny)){
+    if(state.inv && Date.now()<state.invEnd){ /* invulnerable */ } else { endGame(); return; }
+  }
+  state.snake.unshift({x:nx,y:ny});
+  // eat food?
+  if(nx===state.food.x && ny===state.food.y){
+    playBeep(1200,0.06,'square',0.08);
+    state.health = 100; state.eatStreak++; state.score += Math.round(10*(1+Math.floor((state.eatStreak-1)/3))*state.scoreMul);
+    state.food.upg = 0; generateFood(true);
+  } else {
+    state.snake.pop();
+  }
+  // pellets
+  for(let i=state.pellets.length-1;i>=0;i--){
+    const p=state.pellets[i];
+    if(p.x===nx && p.y===ny){
+      applyPowerup(p.type); state.pellets.splice(i,1);
+    } else { p.life--; if(p.life<=0) state.pellets.splice(i,1); }
+  }
+  // bullets from food (attack)
+  attackCounter++; if(attackCounter>=6){ spawnBulletsFromFood(); attackCounter=0; }
+  // update bullets
+  for(let i=state.bullets.length-1;i>=0;i--){
+    const b=state.bullets[i]; b.x+=b.vx; b.y+=b.vy; b.life--;
+    const hx = Math.round(b.x), hy=Math.round(b.y);
+    if(hx===state.snake[0].x && hy===state.snake[0].y){
+      if(!(state.inv && Date.now()<state.invEnd)){
+        state.health = clamp(state.health - b.damage, 0, 100);
+        if(state.health<=0){ endGame(); return; }
+      }
+      state.bullets.splice(i,1); continue;
+    }
+    // vanish when hit boundary or obstacle
+    if(b.x<0 || b.x>=COLS || b.y<0 || b.y>=ROWS) { state.bullets.splice(i,1); continue; }
+    if(state.obstacles.some(o=>Math.round(b.x)===o.x && Math.round(b.y)===o.y)) { state.bullets.splice(i,1); continue; }
+    if(b.life<=0) state.bullets.splice(i,1);
+  }
+  // upgrade food over time
+  state.food.upg++; if(state.food.upg>=40 && state.food.weapon < WEAPONS.length-1){ state.food.weapon++; state.food.upg=0; }
+  // spawn pellets occasionally
+  maybeSpawnPellet();
+  // food movement (make it "sentient" in surprise mode)
+  if(state.surprise){ state.foodMoveTick++; if(state.foodMoveTick>=6){ state.foodMoveTick=0; tryMoveFoodAway(); } }
+  // timers
+  if(state.scoreMulTicks>0){ state.scoreMulTicks--; if(state.scoreMulTicks===0) state.scoreMul=1; }
+  if(state.speedBoost>0) state.speedBoost--; if(state.speedBoost<0) state.speedBoost=0; // clamp negative trick
+  // time attack
+  if(state.timeAttack){ state.timeLeft--; if(state.timeLeft<=0) { endGame(); return; } }
+  // HUD updates
+  scoreEl.textContent = state.score; hpEl.style.width = state.health + '%'; weaponLabel.textContent = WEAPONS[state.food.weapon].name;
+}
+
+/* -------------- FOOD MOVEMENT / SURPRISE -------------- */
+function tryMoveFoodAway(){
+  // pick a neighboring empty cell (including diagonal) that maximizes distance to head
+  const f = state.food, head = state.snake[0];
+  const neighbors = [];
+  for(let dx=-1;dx<=1;dx++) for(let dy=-1;dy<=1;dy++){
+    if(dx===0 && dy===0) continue;
+    const nx = f.x + dx, ny = f.y + dy;
+    if(nx<0||nx>=COLS||ny<0||ny>=ROWS) continue;
+    if(isSnake(nx,ny)) continue;
+    if(state.obstacles.some(o=>o.x===nx&&o.y===ny)) continue;
+    if(state.pellets.some(p=>p.x===nx&&p.y===ny)) continue;
+    neighbors.push({x:nx,y:ny,dist:Math.hypot(nx-head.x, ny-head.y)});
+  }
+  if(neighbors.length===0) return;
+  neighbors.sort((a,b)=>b.dist-a.dist);
+  // with some randomness, sometimes teleport or dash a few cells
+  if(Math.random()<0.08){ // dash to far empty
+    const best = neighbors[0]; state.food.x = best.x; state.food.y = best.y; return;
+  }
+  // otherwise move to best neighbor most of the time
+  const pick = neighbors[Math.floor(Math.random()*Math.min(3,neighbors.length))];
+  state.food.x = pick.x; state.food.y = pick.y;
+}
+
+/* -------------- POWERUPS -------------- */
+function applyPowerup(type){
+  playBeep(1400,0.06);
+  announcer.textContent = 'Power: '+type;
+  switch(type){
+    case 'inv': state.inv = true; state.invEnd = Date.now() + 6000; break;
+    case 'mult2': state.scoreMul = 2; state.scoreMulTicks = 180; break;
+    case 'speed': state.speedBoost = 90; break;
+    case 'slow': state.speedBoost = -40; break;
+    case 'gunup': state.food.weapon = Math.min(WEAPONS.length-1, state.food.weapon+1); break;
+    case 'heal': state.health = clamp(state.health + 30, 0, 100); break;
+    case 'surprise': // random effect
+      const opts = ['inv','mult2','speed','gunup','heal','teleportFood'];
+      const pick = opts[Math.floor(Math.random()*opts.length)];
+      if(pick==='teleportFood'){ const p=randEmpty(); state.food.x=p.x; state.food.y=p.y; announcer.textContent='Surprise! Food teleported.'; }
+      else applyPowerup(pick);
+      break;
+  }
+}
+
+/* -------------- GAME CONTROL -------------- */
+function resetAll(){
+  state = makeState();
+  setupMode();
+  generateFood(true);
+  state.running = true;
+  startBtn.style.display='none'; pauseBtn.style.display='inline-block';
+  state.lastTime = 0; acc=0;
+  announcer.textContent = 'Go!';
+  playBeep(1200,0.08,'sine',0.08);
+  requestAnimationFrame(loop);
+  canvas.focus();
+}
+function endGame(){
+  state.running = false;
+  startBtn.style.display='inline-block'; pauseBtn.style.display='inline-block';
+  saveBest();
+  playBeep(220,0.18,'sawtooth',0.06);
+  announcer.textContent = 'Game Over. Score: '+state.score;
+}
+
+/* -------------- RENDER -------------- */
+function render(){
+  clear();
+  // drawGrid(); // optional
+  drawObstacles();
+  drawFood();
+  drawPellets();
+  drawSnake();
+  drawBullets();
+}
+
+/* -------------- INPUT -------------- */
+document.addEventListener('keydown', e=>{
+  const k=e.key.toLowerCase();
+  if(k==='arrowleft'||k==='a') state.nextDir={x:-1,y:0};
+  if(k==='arrowright'||k==='d') state.nextDir={x:1,y:0};
+  if(k==='arrowup'||k==='w') state.nextDir={x:0,y:-1};
+  if(k==='arrowdown'||k==='s') state.nextDir={x:0,y:1};
+  if(k==='r'){ state.allowReverse = !state.allowReverse; reverseBtn.textContent = 'Reverse: ' + (state.allowReverse ? 'On':'Off'); playBeep(900,0.04); }
+  if(k===' '){ /* optional fire */ playBeep(1600,0.03); }
+});
+
+/* UI wiring */
+startBtn.addEventListener('click',()=>{
+  ensureAudio();
+  if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
+  resetAll();
+});
+pauseBtn.addEventListener('click',()=>{
+  state.running = !state.running;
+  if(state.running){ state.lastTime=0; requestAnimationFrame(loop); pauseBtn.textContent='Pause'; } else { pauseBtn.textContent='Resume'; }
+});
+modeSel.addEventListener('change',()=>{ setupMode(); playBeep(1000,0.04); announcer.textContent='Mode: '+modeSel.value; });
+reverseBtn.addEventListener('click',()=>{ state.allowReverse = !state.allowReverse; reverseBtn.textContent = 'Reverse: ' + (state.allowReverse ? 'On':'Off'); playBeep(800,0.04); });
+vol.addEventListener('input',()=>{ if(masterGain) masterGain.gain.value = vol.value; });
+
+/* initial setup */
+setupMode();
+generateFood(true);
+render();
+canvas.focus();
+announcer.textContent = 'Select a mode and press Start.';
+
+/* -------------- Tiny performance note -------------- */
+/* Bullets now properly originate from the food with floating velocities and are removed on boundary.
+   "Classic (Surprise)" mode makes food move away from the snake and spawns surprise pellets. */
+
+</script>
+</body>
+</html>
